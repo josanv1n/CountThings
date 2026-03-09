@@ -3,7 +3,8 @@ import Webcam from 'react-webcam';
 import { Camera, Upload, RefreshCw, CheckCircle2, AlertCircle, Package, Image as ImageIcon, RotateCcw, SwitchCamera, Zap, Cpu, Settings, X, Cloud } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { countObjectsInImage, CountResult } from './services/gemini';
+//import { countObjectsInImage, CountResult } from './services/gemini';
+import type { CountResult } from './services/gemini';
 import { saveToGoogleSheets, fetchHistory, scanPhotoViaProxy } from './services/storage';
 
 const DEFAULT_WEB_APP_URL = import.meta.env.VITE_WEB_APP_URL || '';
@@ -83,61 +84,73 @@ export default function App() {
   };
 
   const handleCount = async (imgData: string) => {
-    setIsCounting(true);
-    setError(null);
-    setResult(null);
-    
-    try {
-      let countResult: CountResult;
+  setIsCounting(true);
+  setError(null);
+  setResult(null);
 
-      // Jika ada Web App URL, gunakan Apps Script sebagai Proxy
-      if (webAppUrl) {
-        const json = await scanPhotoViaProxy(webAppUrl, imgData);
-        
-        if (json.status === 'success') {
-          // Apps Script mengembalikan data, kita coba parse jika itu string JSON
-          if (typeof json.data === 'string') {
-            try {
-              countResult = JSON.parse(json.data);
-            } catch (e) {
-              countResult = {
-                totalCount: 0,
-                items: [],
-                description: json.data
-              };
-            }
-          } else {
-            countResult = json.data;
-          }
-        } else {
-          throw new Error(json.message || 'Gagal scan lewat Apps Script');
-        }
-      } else {
-        // Jika tidak ada URL, langsung panggil Gemini API (butuh API Key di env)
-        countResult = await countObjectsInImage(imgData);
-      }
+  try {
 
-      setResult(countResult);
-      confetti({
-        particleCount: 150,
-        spread: 100,
-        colors: ['#00ff66', '#00f2ff', '#ff00e5'],
-        origin: { y: 0.6 }
-      });
-    } catch (err: any) {
-      const errorMessage = err?.message || 'Gagal scan. Coba lagi gih!';
-      if (errorMessage.includes('GEMINI_API_KEY')) {
-        setError('Error: GEMINI_API_KEY belum disetting di Script Properties Google Apps Script!');
-      } else if (errorMessage.includes('404')) {
-        setError('Error 404: Model Gemini tidak ditemukan. Pastikan kode Apps Script sudah diupdate ke versi terbaru.');
-      } else {
-        setError(`Waduh, gagal scan nih: ${errorMessage}`);
-      }
-      console.error(err);
-    } finally {
-      setIsCounting(false);
+    if (!webAppUrl) {
+      throw new Error("WebApp URL belum diisi");
     }
-  };
+
+    const json = await scanPhotoViaProxy(webAppUrl, imgData);
+
+    let countResult: CountResult;
+
+    if (json.status === 'success') {
+
+      if (typeof json.data === 'string') {
+
+        try {
+          countResult = JSON.parse(json.data);
+        } catch {
+
+          countResult = {
+            totalCount: 0,
+            items: [],
+            description: json.data
+          };
+
+        }
+
+      } else {
+
+        countResult = json.data;
+
+      }
+
+    } else {
+
+      throw new Error(json.message || 'Scan gagal');
+
+    }
+
+    setResult(countResult);
+
+    confetti({
+      particleCount: 150,
+      spread: 100,
+      origin: { y: 0.6 }
+    });
+
+  } catch (err: any) {
+
+    const msg = err?.message || "Error scan";
+
+    if (msg.includes("GEMINI_API_KEY")) {
+      setError("API KEY belum di set di Apps Script");
+    } else {
+      setError(msg);
+    }
+
+  } finally {
+
+    setIsCounting(false);
+
+  }
+};
+
 
   const handleSave = async () => {
     if (!result || !image || !webAppUrl) {
