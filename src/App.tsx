@@ -183,35 +183,54 @@ export default function App() {
     }
   };
 
-  const handleDeleteHistory = async (id: string) => {
-    if (!webAppUrl) {
-      setShowSettings(true);
-      return;
-    }
-    const ok = window.confirm('Hapus riwayat ini dari spreadsheet? (Foto di Drive TIDAK akan dihapus)');
-    if (!ok) return;
-    setDeletingId(id);
-    setError(null);
-    try {
-      const resp = await fetch(webAppUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'DELETE_DATA', ID: id })
-      });
-      const json = await resp.json();
-      if (json.status === 'success') {
-        // reload history
-        await loadHistory(webAppUrl);
-      } else {
-        throw new Error(json.message || 'Gagal hapus data');
-      }
-    } catch (err: any) {
-      console.error(err);
-      setError(`Gagal hapus: ${err?.message || err}`);
-    } finally {
-      setDeletingId(null);
-    }
+const handleDeleteHistory = async (id: string) => {
+  if (!webAppUrl) {
+    setShowSettings(true);
+    return;
+  }
+
+  const ok = window.confirm('Hapus riwayat ini dari spreadsheet? (Foto di Drive TIDAK akan dihapus)');
+  if (!ok) return;
+
+  setDeletingId(id);
+  setError(null);
+
+  // helper untuk parse response safely
+  const parseJsonSafe = async (res: Response) => {
+    try { return await res.json(); } catch (e) { return { status: 'error', message: 'Invalid JSON response' }; }
   };
+
+  try {
+    // 1) coba kirim JSON (biasa)
+    let resp = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'DELETE_DATA', ID: id })
+    });
+
+    if (!resp.ok) {
+      // coba fallback ke form-urlencoded jika server menolak / preflight gagal
+      console.warn('Primary JSON POST failed with status', resp.status, ' — trying fallback form POST');
+      resp = await fetch(webAppUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ action: 'DELETE_DATA', ID: id }).toString()
+      });
+    }
+
+    const json = await parseJsonSafe(resp);
+    if (json && json.status === 'success') {
+      await loadHistory(webAppUrl);
+    } else {
+      throw new Error(json?.message || 'Gagal hapus data (response tidak sukses)');
+    }
+  } catch (err: any) {
+    console.error('Delete failed:', err);
+    setError(`Gagal hapus: ${err?.message || err}`);
+  } finally {
+    setDeletingId(null);
+  }
+};
 
   const saveSettings = (url: string) => {
     localStorage.setItem('webAppUrl', url);
