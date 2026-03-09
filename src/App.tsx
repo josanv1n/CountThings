@@ -9,11 +9,11 @@ import { saveToGoogleSheets, fetchHistory, scanPhotoViaProxy } from './services/
 const DEFAULT_WEB_APP_URL = import.meta.env.VITE_WEB_APP_URL || '';
 
 interface HistoryItem {
-  id: string;
-  timestamp: string;
-  photoUrl: string;
-  resultScan: string;
-  notes: string;
+  ID: string;
+  Timestamp: string;
+  photoBase64: string;
+  ResultScan: string;
+  Notes: string;
 }
 
 export default function App() {
@@ -152,10 +152,10 @@ export default function App() {
       const rincian = result.items.map(i => `${i.name}: ${i.count}`).join(', ');
       const saveResponse = await saveToGoogleSheets(webAppUrl, {
         action: 'SAVE_DATA',
-        id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+        ID: Math.random().toString(36).substr(2, 9).toUpperCase(),
         photoBase64: image,
-        resultScan: `Total: ${result.totalCount} (${rincian})`,
-        notes: result.description
+        ResultScan: `Total: ${result.totalCount} (${rincian})`,
+        Notes: result.description
       });
 
       if (saveResponse.status === 'success') {
@@ -483,7 +483,7 @@ export default function App() {
               <div className="grid grid-cols-2 gap-3">
                 {history.map((item, idx) => (
                   <motion.div
-                    key={item.id}
+                    key={item.ID}
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: idx * 0.05 }}
@@ -492,15 +492,15 @@ export default function App() {
                   >
                     <div className="aspect-square relative">
                       <img 
-                        src={item.photoUrl} 
+                        src={item.photoBase64} 
                         alt="History" 
                         className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
                         referrerPolicy="no-referrer"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
                       <div className="absolute bottom-2 left-2 right-2">
-                        <p className="text-[10px] font-black text-white truncate">{item.resultScan}</p>
-                        <p className="text-[8px] font-mono text-white/40">{new Date(item.timestamp).toLocaleDateString()}</p>
+                        <p className="text-[10px] font-black text-white truncate">{item.ResultScan}</p>
+                        <p className="text-[8px] font-mono text-white/40">{new Date(item.Timestamp).toLocaleDateString()}</p>
                       </div>
                     </div>
                   </motion.div>
@@ -539,7 +539,7 @@ export default function App() {
 
               <div className="aspect-square w-full relative shrink-0">
                 <img 
-                  src={selectedHistoryItem.photoUrl} 
+                  src={selectedHistoryItem.photoBase64} 
                   alt="Detail" 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -550,18 +550,18 @@ export default function App() {
               <div className="p-6 space-y-4 overflow-y-auto">
                 <div>
                   <p className="text-[10px] font-black text-neon-cyan uppercase tracking-[0.3em] mb-1">Hasil Scan</p>
-                  <h3 className="text-2xl font-black text-white">{selectedHistoryItem.resultScan}</h3>
-                  <p className="text-xs text-white/40 font-mono mt-1">{new Date(selectedHistoryItem.timestamp).toLocaleString()}</p>
+                  <h3 className="text-2xl font-black text-white">{selectedHistoryItem.ResultScan}</h3>
+                  <p className="text-xs text-white/40 font-mono mt-1">{new Date(selectedHistoryItem.Timestamp).toLocaleString()}</p>
                 </div>
 
                 <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
                   <p className="text-[10px] font-black text-neon-pink uppercase tracking-widest mb-2">AI Note</p>
-                  <p className="text-sm text-white/70 leading-relaxed">{selectedHistoryItem.notes}</p>
+                  <p className="text-sm text-white/70 leading-relaxed">{selectedHistoryItem.Notes}</p>
                 </div>
 
                 <div className="flex items-center gap-2 text-[10px] text-white/20 font-mono uppercase">
                   <Package className="w-3 h-3" />
-                  ID: {selectedHistoryItem.id}
+                  ID: {selectedHistoryItem.ID}
                 </div>
               </div>
             </motion.div>

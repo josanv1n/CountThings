@@ -13,17 +13,23 @@
 
 const SPREADSHEET_ID = '1audwZ-_kusPpKZ4JvUOj5-IE0EOpnCaKbEJos6FKNTw';
 const FOLDER_ID = '1hxYHUgBvFORzhqm8govhNivb_e34gDVE';
+
 const SHEET_NAME = 'Record';
 const BACKUP_SHEET_NAME = 'Backup';
 
 /**
  * JALANKAN INI SEKALI SECARA MANUAL (Klik tombol 'Run' di atas)
- * Untuk memberikan izin akses ke Google Drive dan Spreadsheet.
+ * Untuk memberikan izin akses penuh (Baca & Tulis) ke Google Drive dan Spreadsheet.
  */
 function triggerPermissions() {
   const folder = DriveApp.getFolderById(FOLDER_ID);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  Logger.log('Izin berhasil diberikan untuk Folder: ' + folder.getName());
+  
+  // Memaksa permintaan izin 'Tulis' dengan membuat file dummy lalu menghapusnya
+  const dummyFile = folder.createFile('izin_test.txt', 'test');
+  dummyFile.setTrashed(true);
+  
+  Logger.log('Izin BACA & TULIS berhasil diberikan untuk Folder: ' + folder.getName());
   Logger.log('Izin berhasil diberikan untuk Spreadsheet: ' + ss.getName());
 }
 
@@ -71,49 +77,53 @@ function doPost(e) {
 
 function saveData(data) {
   try {
-    if (!data || !data.id) {
-      throw new Error('Data tidak lengkap atau fungsi dijalankan manual tanpa parameter. Gunakan fungsi testSaveData untuk uji coba.');
+    // Menggunakan casing sesuai yang dikirim dari Frontend (ID, ResultScan, dll)
+    const id = data.ID || data.id; 
+    if (!id) {
+      throw new Error('ID tidak ditemukan. Pastikan data dikirim dengan benar.');
     }
-    console.log('Starting saveData for ID:', data.id);
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    let sheet = ss.getSheetByName(SHEET_NAME);
     
-    if (!sheet) {
-      sheet = ss.insertSheet(SHEET_NAME);
-      sheet.appendRow(['ID', 'Timestamp', 'photoBase64 (Link)', 'Result Scan', 'Notes']);
-    }
-
+    console.log('Starting saveData for ID:', id);
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    
     // 1. Upload Foto ke Google Drive
     console.log('Uploading photo to Drive...');
-    const photoUrl = saveFileToDrive(data.photoBase64, data.id);
+    const photoUrl = saveFileToDrive(data.photoBase64, id);
     console.log('Photo uploaded, URL:', photoUrl);
 
-    // 2. Simpan ke Spreadsheet
+    // 2. Siapkan Data Baris (Sesuai Header Baru Anda)
     const timestamp = new Date();
+    const formattedDate = Utilities.formatDate(timestamp, "Asia/Jakarta", "MM/dd/yyyy HH:mm:ss");
+    
+    // Urutan: ID, Timestamp, photoBase64, ResultScan, Notes
     const rowData = [
-      data.id,
-      timestamp,
+      id,
+      formattedDate,
       photoUrl,
-      data.resultScan,
-      data.notes
+      data.ResultScan || data.resultScan,
+      data.Notes || data.notes
     ];
 
+    // 3. Simpan ke Sheet Record
+    let sheet = ss.getSheetByName(SHEET_NAME);
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAME);
+      sheet.appendRow(['ID', 'Timestamp', 'photoBase64', 'ResultScan', 'Notes']);
+    }
     sheet.appendRow(rowData);
-    console.log('Row appended to Record sheet');
 
-    // 3. Simpan ke Backup Sheet
+    // 4. Simpan ke Sheet Backup
     let backupSheet = ss.getSheetByName(BACKUP_SHEET_NAME);
     if (!backupSheet) {
       backupSheet = ss.insertSheet(BACKUP_SHEET_NAME);
-      backupSheet.appendRow(['ID', 'Timestamp', 'photoBase64 (Link)', 'Result Scan', 'Notes']);
+      backupSheet.appendRow(['ID', 'Timestamp', 'photoBase64', 'ResultScan', 'Notes']);
     }
     backupSheet.appendRow(rowData);
-    console.log('Row appended to Backup sheet');
 
     return JSON_RESPONSE({
       status: 'success',
-      message: 'Data berhasil disimpan',
-      data: { id: data.id, photoUrl: photoUrl }
+      message: 'Data berhasil disimpan ke Record & Backup',
+      data: { id: id, photoUrl: photoUrl }
     });
   } catch (error) {
     console.error('Error in saveData:', error);
@@ -129,25 +139,33 @@ function saveData(data) {
  */
 function testSaveData() {
   const testData = {
-    id: 'TEST-' + Math.floor(Math.random() * 1000),
+    ID: 'TEST-' + Math.floor(Math.random() * 1000),
     photoBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-    resultScan: 'Total: 1 (Test Item)',
-    notes: 'Ini adalah data uji coba dari editor Apps Script.'
+    ResultScan: 'Total: 1 (Test Item)',
+    Notes: 'Data uji coba dari editor.'
   };
   const response = saveData(testData);
-  Logger.log(response.getContentText());
+  Logger.log('Response: ' + response.getContent());
 }
 
 function saveFileToDrive(base64Data, fileName) {
+  const timestamp = new Date().getTime();
   const folder = DriveApp.getFolderById(FOLDER_ID);
+  
   const parts = base64Data.split(',');
   const contentType = parts[0].substring(5, parts[0].indexOf(';'));
-  const bytes = Utilities.base64Decode(parts[1]);
-  const blob = Utilities.newBlob(bytes, contentType, fileName + ".jpg");
-  const file = folder.createFile(blob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  const rawData = parts[1];
+  const blob = Utilities.newBlob(Utilities.base64Decode(rawData), contentType, `Count_${fileName}_${timestamp}.jpg`);
   
-  // Format URL direct link agar bisa tampil di app
+  const file = folder.createFile(blob);
+  
+  try {
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  } catch (e) {
+    console.warn("Gagal set sharing: " + e.toString());
+  }
+  
+  // Direct link agar bisa tampil di aplikasi
   return "https://lh3.googleusercontent.com/d/" + file.getId();
 }
 
@@ -161,14 +179,17 @@ function getHistory() {
     const values = sheet.getDataRange().getValues();
     if (values.length <= 1) return JSON_RESPONSE({ status: 'success', data: [] });
 
+    const headers = values[0];
     const rows = values.slice(1);
-    const history = rows.map(row => ({
-      id: row[0],
-      timestamp: row[1],
-      photoUrl: row[2],
-      resultScan: row[3],
-      notes: row[4]
-    })).reverse();
+    
+    // Mapping dinamis berdasarkan nama header di Sheet
+    const history = rows.map(row => {
+      let obj = {};
+      headers.forEach((header, index) => {
+        obj[header] = row[index];
+      });
+      return obj;
+    }).reverse();
 
     return JSON_RESPONSE({
       status: 'success',
