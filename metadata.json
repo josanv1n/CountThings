@@ -1,0 +1,5 @@
+{
+  "name": "CountThings",
+  "description": "Aplikasi penghitung barang otomatis melalui foto menggunakan AI.",
+  "requestFramePermissions": ["camera"]
+}
