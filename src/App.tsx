@@ -4,7 +4,7 @@ import { Camera, Upload, RefreshCw, CheckCircle2, AlertCircle, Package, Image as
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { countObjectsInImage, CountResult } from './services/gemini';
-import { saveToGoogleSheets, fetchHistory } from './services/storage';
+import { saveToGoogleSheets, fetchHistory, scanPhotoViaProxy } from './services/storage';
 
 const DEFAULT_WEB_APP_URL = import.meta.env.VITE_WEB_APP_URL || '';
 
@@ -37,8 +37,9 @@ export default function App() {
     try {
       const data = await fetchHistory(url);
       setHistory(data);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load history:", err);
+      // Don't set global error for history fetch to avoid blocking main UI
     } finally {
       setIsLoadingHistory(false);
     }
@@ -91,15 +92,8 @@ export default function App() {
 
       // Jika ada Web App URL, gunakan Apps Script sebagai Proxy
       if (webAppUrl) {
-        const response = await fetch(webAppUrl, {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'SCAN_PHOTO',
-            image: imgData
-          })
-        });
+        const json = await scanPhotoViaProxy(webAppUrl, imgData);
         
-        const json = await response.json();
         if (json.status === 'success') {
           // Apps Script mengembalikan data, kita coba parse jika itu string JSON
           if (typeof json.data === 'string') {
@@ -132,7 +126,13 @@ export default function App() {
       });
     } catch (err: any) {
       const errorMessage = err?.message || 'Gagal scan. Coba lagi gih!';
-      setError(errorMessage.includes('API Key') ? 'API Key belum disetting di server!' : `Waduh, gagal scan nih: ${errorMessage}`);
+      if (errorMessage.includes('GEMINI_API_KEY')) {
+        setError('Error: GEMINI_API_KEY belum disetting di Script Properties Google Apps Script!');
+      } else if (errorMessage.includes('404')) {
+        setError('Error 404: Model Gemini tidak ditemukan. Pastikan kode Apps Script sudah diupdate ke versi terbaru.');
+      } else {
+        setError(`Waduh, gagal scan nih: ${errorMessage}`);
+      }
       console.error(err);
     } finally {
       setIsCounting(false);
@@ -624,6 +624,15 @@ export default function App() {
                 <p className="text-[9px] text-white/30 italic px-1">
                   *Masukkan URL dari Deployment Google Apps Script kamu.
                 </p>
+                <div className="bg-white/5 p-3 rounded-xl border border-white/10 mt-2">
+                  <p className="text-[9px] font-bold text-neon-pink uppercase mb-1">Tips Error:</p>
+                  <ul className="text-[8px] text-white/50 space-y-1 list-disc ml-3">
+                    <li>Pastikan Deploy sebagai <b>"Anyone"</b>.</li>
+                    <li>Tambahkan <b>GEMINI_API_KEY</b> di Script Properties Apps Script.</li>
+                    <li>Klik <b>"Run"</b> di Apps Script editor untuk <b>Otorisasi</b> Drive/Sheets.</li>
+                    <li>Gunakan URL <b>/exec</b>, bukan URL editor.</li>
+                  </ul>
+                </div>
               </div>
 
               <button 
