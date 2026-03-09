@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY || "";
+const ai = new GoogleGenAI({ apiKey });
 
 export interface CountResult {
   totalCount: number;
@@ -12,6 +13,10 @@ export interface CountResult {
 }
 
 export async function countObjectsInImage(base64Image: string): Promise<CountResult> {
+  if (!apiKey) {
+    throw new Error("API Key tidak ditemukan! Pastikan sudah setting GEMINI_API_KEY atau VITE_GEMINI_API_KEY di Vercel.");
+  }
+
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",

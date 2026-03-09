@@ -1,9 +1,20 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Webcam from 'react-webcam';
-import { Camera, Upload, RefreshCw, CheckCircle2, AlertCircle, Package, Image as ImageIcon, RotateCcw, SwitchCamera, Zap, Cpu } from 'lucide-react';
+import { Camera, Upload, RefreshCw, CheckCircle2, AlertCircle, Package, Image as ImageIcon, RotateCcw, SwitchCamera, Zap, Cpu, Settings, X, Cloud } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { countObjectsInImage, CountResult } from './services/gemini';
+import { saveToGoogleSheets, fetchHistory } from './services/storage';
+
+const DEFAULT_WEB_APP_URL = import.meta.env.VITE_WEB_APP_URL || '';
+
+interface HistoryItem {
+  id: string;
+  timestamp: string;
+  photoUrl: string;
+  resultScan: string;
+  notes: string;
+}
 
 export default function App() {
   const [image, setImage] = useState<string | null>(null);
@@ -12,6 +23,35 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'camera' | 'upload'>('camera');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [webAppUrl, setWebAppUrl] = useState(DEFAULT_WEB_APP_URL);
+  const [showSettings, setShowSettings] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryItem | null>(null);
+
+  const loadHistory = useCallback(async (url: string) => {
+    if (!url) return;
+    setIsLoadingHistory(true);
+    try {
+      const data = await fetchHistory(url);
+      setHistory(data);
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const savedUrl = localStorage.getItem('webAppUrl');
+    const urlToUse = savedUrl || DEFAULT_WEB_APP_URL;
+    if (urlToUse) {
+      setWebAppUrl(urlToUse);
+      loadHistory(urlToUse);
+    }
+  }, [loadHistory]);
   
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -47,7 +87,42 @@ export default function App() {
     setResult(null);
     
     try {
-      const countResult = await countObjectsInImage(imgData);
+      let countResult: CountResult;
+
+      // Jika ada Web App URL, gunakan Apps Script sebagai Proxy
+      if (webAppUrl) {
+        const response = await fetch(webAppUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'SCAN_PHOTO',
+            image: imgData
+          })
+        });
+        
+        const json = await response.json();
+        if (json.status === 'success') {
+          // Apps Script mengembalikan data, kita coba parse jika itu string JSON
+          if (typeof json.data === 'string') {
+            try {
+              countResult = JSON.parse(json.data);
+            } catch (e) {
+              countResult = {
+                totalCount: 0,
+                items: [],
+                description: json.data
+              };
+            }
+          } else {
+            countResult = json.data;
+          }
+        } else {
+          throw new Error(json.message || 'Gagal scan lewat Apps Script');
+        }
+      } else {
+        // Jika tidak ada URL, langsung panggil Gemini API (butuh API Key di env)
+        countResult = await countObjectsInImage(imgData);
+      }
+
       setResult(countResult);
       confetti({
         particleCount: 150,
@@ -55,18 +130,60 @@ export default function App() {
         colors: ['#00ff66', '#00f2ff', '#ff00e5'],
         origin: { y: 0.6 }
       });
-    } catch (err) {
-      setError('Waduh, gagal scan nih. Coba lagi gih!');
+    } catch (err: any) {
+      const errorMessage = err?.message || 'Gagal scan. Coba lagi gih!';
+      setError(errorMessage.includes('API Key') ? 'API Key belum disetting di server!' : `Waduh, gagal scan nih: ${errorMessage}`);
       console.error(err);
     } finally {
       setIsCounting(false);
     }
   };
 
+  const handleSave = async () => {
+    if (!result || !image || !webAppUrl) {
+      if (!webAppUrl) setShowSettings(true);
+      return;
+    }
+
+    setIsSaving(true);
+    setSaveStatus('loading');
+    
+    try {
+      const rincian = result.items.map(i => `${i.name}: ${i.count}`).join(', ');
+      const saveResponse = await saveToGoogleSheets(webAppUrl, {
+        action: 'SAVE_DATA',
+        id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+        photoBase64: image,
+        resultScan: `Total: ${result.totalCount} (${rincian})`,
+        notes: result.description
+      });
+
+      if (saveResponse.status === 'success') {
+        setSaveStatus('success');
+        loadHistory(webAppUrl);
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      } else {
+        throw new Error(saveResponse.message || 'Gagal simpan');
+      }
+    } catch (err) {
+      setSaveStatus('error');
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const saveSettings = (url: string) => {
+    localStorage.setItem('webAppUrl', url);
+    setWebAppUrl(url);
+    setShowSettings(false);
+  };
+
   const reset = () => {
     setImage(null);
     setResult(null);
     setError(null);
+    setSaveStatus('idle');
   };
 
   return (
@@ -87,19 +204,27 @@ export default function App() {
           </div>
         </motion.div>
         
-        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={() => setMode('camera')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${mode === 'camera' ? 'bg-neon-green text-black shadow-[0_0_10px_rgba(0,255,102,0.5)]' : 'text-white/40 hover:text-white'}`}
+            onClick={() => setShowSettings(true)}
+            className="p-2 text-white/40 hover:text-neon-cyan transition-colors"
           >
-            Cam
+            <Settings className="w-5 h-5" />
           </button>
-          <button 
-            onClick={() => setMode('upload')}
-            className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${mode === 'upload' ? 'bg-neon-cyan text-black shadow-[0_0_10px_rgba(0,242,255,0.5)]' : 'text-white/40 hover:text-white'}`}
-          >
-            File
-          </button>
+          <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+            <button 
+              onClick={() => setMode('camera')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${mode === 'camera' ? 'bg-neon-green text-black shadow-[0_0_10px_rgba(0,255,102,0.5)]' : 'text-white/40 hover:text-white'}`}
+            >
+              Cam
+            </button>
+            <button 
+              onClick={() => setMode('upload')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider ${mode === 'upload' ? 'bg-neon-cyan text-black shadow-[0_0_10px_rgba(0,242,255,0.5)]' : 'text-white/40 hover:text-white'}`}
+            >
+              File
+            </button>
+          </div>
         </div>
       </header>
 
@@ -280,11 +405,31 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-white/10">
+                <div className="pt-4 border-t border-white/10 flex flex-col gap-3">
                   <p className="text-xs text-white/60 font-medium leading-relaxed">
                     <span className="text-neon-pink font-black uppercase mr-2">AI Note:</span>
                     {result.description}
                   </p>
+                  
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleSave}
+                    disabled={isSaving || saveStatus === 'success'}
+                    className={`w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
+                      saveStatus === 'success' 
+                        ? 'bg-emerald-500 text-black' 
+                        : saveStatus === 'error'
+                        ? 'bg-red-500 text-white'
+                        : 'bg-neon-cyan text-black shadow-[0_5px_15px_rgba(0,242,255,0.2)]'
+                    }`}
+                  >
+                    {saveStatus === 'loading' ? <RefreshCw className="w-4 h-4 animate-spin" /> : 
+                     saveStatus === 'success' ? <CheckCircle2 className="w-4 h-4" /> : 
+                     <Cloud className="w-4 h-4" />}
+                    {saveStatus === 'loading' ? 'Menyimpan...' : 
+                     saveStatus === 'success' ? 'Berhasil Disimpan!' : 
+                     saveStatus === 'error' ? 'Gagal Simpan' : 'Simpan ke Spreadsheet'}
+                  </motion.button>
                 </div>
               </motion.div>
             ) : error ? (
@@ -315,8 +460,114 @@ export default function App() {
             ) : null}
           </AnimatePresence>
 
+          {/* History Section */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between px-2">
+              <h2 className="text-sm font-black uppercase tracking-widest text-white/60 flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" />
+                Riwayat Foto
+              </h2>
+              <button 
+                onClick={() => loadHistory(webAppUrl)}
+                className="text-[10px] font-bold text-neon-cyan uppercase tracking-wider hover:underline"
+              >
+                Refresh
+              </button>
+            </div>
+
+            {isLoadingHistory ? (
+              <div className="flex justify-center py-10">
+                <RefreshCw className="w-8 h-8 text-white/20 animate-spin" />
+              </div>
+            ) : history.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {history.map((item, idx) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: idx * 0.05 }}
+                    onClick={() => setSelectedHistoryItem(item)}
+                    className="bg-white/5 rounded-2xl border border-white/10 overflow-hidden cursor-pointer hover:border-neon-cyan/50 transition-all group"
+                  >
+                    <div className="aspect-square relative">
+                      <img 
+                        src={item.photoUrl} 
+                        alt="History" 
+                        className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent"></div>
+                      <div className="absolute bottom-2 left-2 right-2">
+                        <p className="text-[10px] font-black text-white truncate">{item.resultScan}</p>
+                        <p className="text-[8px] font-mono text-white/40">{new Date(item.timestamp).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            ) : (
+              <div className="py-10 text-center bg-white/5 rounded-3xl border border-white/5">
+                <p className="text-[10px] text-white/20 uppercase font-black tracking-widest">Belum ada riwayat</p>
+              </div>
+            )}
+          </section>
+
         </div>
       </main>
+
+      {/* History Detail Modal */}
+      <AnimatePresence>
+        {selectedHistoryItem && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#151520] border border-white/10 rounded-3xl overflow-hidden w-full max-w-md relative flex flex-col max-h-[90vh]"
+            >
+              <button 
+                onClick={() => setSelectedHistoryItem(null)}
+                className="absolute top-4 right-4 z-10 bg-black/50 p-2 rounded-full text-white/70 hover:text-white backdrop-blur-md"
+              >
+                <X className="w-6 h-6" />
+              </button>
+
+              <div className="aspect-square w-full relative shrink-0">
+                <img 
+                  src={selectedHistoryItem.photoUrl} 
+                  alt="Detail" 
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#151520] via-transparent to-transparent"></div>
+              </div>
+
+              <div className="p-6 space-y-4 overflow-y-auto">
+                <div>
+                  <p className="text-[10px] font-black text-neon-cyan uppercase tracking-[0.3em] mb-1">Hasil Scan</p>
+                  <h3 className="text-2xl font-black text-white">{selectedHistoryItem.resultScan}</h3>
+                  <p className="text-xs text-white/40 font-mono mt-1">{new Date(selectedHistoryItem.timestamp).toLocaleString()}</p>
+                </div>
+
+                <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                  <p className="text-[10px] font-black text-neon-pink uppercase tracking-widest mb-2">AI Note</p>
+                  <p className="text-sm text-white/70 leading-relaxed">{selectedHistoryItem.notes}</p>
+                </div>
+
+                <div className="flex items-center gap-2 text-[10px] text-white/20 font-mono uppercase">
+                  <Package className="w-3 h-3" />
+                  ID: {selectedHistoryItem.id}
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Android Style Bottom Nav / Info */}
       <footer className="fixed bottom-0 left-0 w-full bg-[#0a0a0f]/90 backdrop-blur-xl border-t border-white/10 p-4 z-50">
@@ -331,6 +582,63 @@ export default function App() {
           <p className="text-[10px] text-white/20 font-mono">COUNTTHINGS // TECHNO_VIEW_V2</p>
         </div>
       </footer>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-xl flex items-center justify-center p-6"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-[#151520] border border-white/10 rounded-3xl p-8 w-full max-w-sm space-y-6 relative"
+            >
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="absolute top-4 right-4 text-white/40 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              
+              <div className="text-center">
+                <div className="bg-neon-cyan/20 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-neon-cyan/30">
+                  <Settings className="text-neon-cyan w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-black uppercase tracking-tighter">Cloud Settings</h2>
+                <p className="text-[10px] text-white/40 mt-1 font-mono uppercase tracking-widest">Google Sheets Integration</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-neon-cyan uppercase tracking-widest ml-1">Web App URL</label>
+                <input 
+                  type="text" 
+                  defaultValue={webAppUrl}
+                  placeholder="https://script.google.com/macros/s/..."
+                  id="webAppUrlInput"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-xs font-mono focus:border-neon-cyan outline-none transition-colors"
+                />
+                <p className="text-[9px] text-white/30 italic px-1">
+                  *Masukkan URL dari Deployment Google Apps Script kamu.
+                </p>
+              </div>
+
+              <button 
+                onClick={() => {
+                  const input = document.getElementById('webAppUrlInput') as HTMLInputElement;
+                  saveSettings(input.value);
+                }}
+                className="w-full bg-neon-cyan text-black py-4 rounded-xl font-black uppercase tracking-widest shadow-[0_10px_20px_rgba(0,242,255,0.2)]"
+              >
+                Simpan Config
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
