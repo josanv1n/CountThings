@@ -13,23 +13,17 @@
 
 const SPREADSHEET_ID = '1audwZ-_kusPpKZ4JvUOj5-IE0EOpnCaKbEJos6FKNTw';
 const FOLDER_ID = '1hxYHUgBvFORzhqm8govhNivb_e34gDVE';
-
 const SHEET_NAME = 'Record';
 const BACKUP_SHEET_NAME = 'Backup';
 
 /**
  * JALANKAN INI SEKALI SECARA MANUAL (Klik tombol 'Run' di atas)
- * Untuk memberikan izin akses penuh (Baca & Tulis) ke Google Drive dan Spreadsheet.
+ * Untuk memberikan izin akses ke Google Drive dan Spreadsheet.
  */
 function triggerPermissions() {
   const folder = DriveApp.getFolderById(FOLDER_ID);
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-  
-  // Memaksa permintaan izin 'Tulis' dengan membuat file dummy lalu menghapusnya
-  const dummyFile = folder.createFile('izin_test.txt', 'test');
-  dummyFile.setTrashed(true);
-  
-  Logger.log('Izin BACA & TULIS berhasil diberikan untuk Folder: ' + folder.getName());
+  Logger.log('Izin berhasil diberikan untuk Folder: ' + folder.getName());
   Logger.log('Izin berhasil diberikan untuk Spreadsheet: ' + ss.getName());
 }
 
@@ -77,53 +71,49 @@ function doPost(e) {
 
 function saveData(data) {
   try {
-    // Menggunakan casing sesuai yang dikirim dari Frontend (ID, ResultScan, dll)
-    const id = data.ID || data.id; 
-    if (!id) {
-      throw new Error('ID tidak ditemukan. Pastikan data dikirim dengan benar.');
+    if (!data || !data.id) {
+      throw new Error('Data tidak lengkap atau fungsi dijalankan manual tanpa parameter. Gunakan fungsi testSaveData untuk uji coba.');
     }
-    
-    console.log('Starting saveData for ID:', id);
+    console.log('Starting saveData for ID:', data.id);
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    
-    // 1. Upload Foto ke Google Drive
-    console.log('Uploading photo to Drive...');
-    const photoUrl = saveFileToDrive(data.photoBase64, id);
-    console.log('Photo uploaded, URL:', photoUrl);
-
-    // 2. Siapkan Data Baris (Sesuai Header Baru Anda)
-    const timestamp = new Date();
-    const formattedDate = Utilities.formatDate(timestamp, "Asia/Jakarta", "MM/dd/yyyy HH:mm:ss");
-    
-    // Urutan: ID, Timestamp, photoBase64, ResultScan, Notes
-    const rowData = [
-      id,
-      formattedDate,
-      photoUrl,
-      data.ResultScan || data.resultScan,
-      data.Notes || data.notes
-    ];
-
-    // 3. Simpan ke Sheet Record
     let sheet = ss.getSheetByName(SHEET_NAME);
+    
     if (!sheet) {
       sheet = ss.insertSheet(SHEET_NAME);
-      sheet.appendRow(['ID', 'Timestamp', 'photoBase64', 'ResultScan', 'Notes']);
+      sheet.appendRow(['ID', 'Timestamp', 'photoBase64 (Link)', 'Result Scan', 'Notes']);
     }
-    sheet.appendRow(rowData);
 
-    // 4. Simpan ke Sheet Backup
+    // 1. Upload Foto ke Google Drive
+    console.log('Uploading photo to Drive...');
+    const photoUrl = saveFileToDrive(data.photoBase64, data.id);
+    console.log('Photo uploaded, URL:', photoUrl);
+
+    // 2. Simpan ke Spreadsheet
+    const timestamp = new Date();
+    const rowData = [
+      data.id,
+      timestamp,
+      photoUrl,
+      data.resultScan,
+      data.notes
+    ];
+
+    sheet.appendRow(rowData);
+    console.log('Row appended to Record sheet');
+
+    // 3. Simpan ke Backup Sheet
     let backupSheet = ss.getSheetByName(BACKUP_SHEET_NAME);
     if (!backupSheet) {
       backupSheet = ss.insertSheet(BACKUP_SHEET_NAME);
-      backupSheet.appendRow(['ID', 'Timestamp', 'photoBase64', 'ResultScan', 'Notes']);
+      backupSheet.appendRow(['ID', 'Timestamp', 'photoBase64 (Link)', 'Result Scan', 'Notes']);
     }
     backupSheet.appendRow(rowData);
+    console.log('Row appended to Backup sheet');
 
     return JSON_RESPONSE({
       status: 'success',
-      message: 'Data berhasil disimpan ke Record & Backup',
-      data: { id: id, photoUrl: photoUrl }
+      message: 'Data berhasil disimpan',
+      data: { id: data.id, photoUrl: photoUrl }
     });
   } catch (error) {
     console.error('Error in saveData:', error);
@@ -139,33 +129,25 @@ function saveData(data) {
  */
 function testSaveData() {
   const testData = {
-    ID: 'TEST-' + Math.floor(Math.random() * 1000),
+    id: 'TEST-' + Math.floor(Math.random() * 1000),
     photoBase64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-    ResultScan: 'Total: 1 (Test Item)',
-    Notes: 'Data uji coba dari editor.'
+    resultScan: 'Total: 1 (Test Item)',
+    notes: 'Ini adalah data uji coba dari editor Apps Script.'
   };
   const response = saveData(testData);
-  Logger.log('Response: ' + response.getContent());
+  Logger.log(response.getContentText());
 }
 
 function saveFileToDrive(base64Data, fileName) {
-  const timestamp = new Date().getTime();
   const folder = DriveApp.getFolderById(FOLDER_ID);
-  
   const parts = base64Data.split(',');
   const contentType = parts[0].substring(5, parts[0].indexOf(';'));
-  const rawData = parts[1];
-  const blob = Utilities.newBlob(Utilities.base64Decode(rawData), contentType, `Count_${fileName}_${timestamp}.jpg`);
-  
+  const bytes = Utilities.base64Decode(parts[1]);
+  const blob = Utilities.newBlob(bytes, contentType, fileName + ".jpg");
   const file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   
-  try {
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  } catch (e) {
-    console.warn("Gagal set sharing: " + e.toString());
-  }
-  
-  // Direct link agar bisa tampil di aplikasi
+  // Format URL direct link agar bisa tampil di app
   return "https://lh3.googleusercontent.com/d/" + file.getId();
 }
 
@@ -179,17 +161,14 @@ function getHistory() {
     const values = sheet.getDataRange().getValues();
     if (values.length <= 1) return JSON_RESPONSE({ status: 'success', data: [] });
 
-    const headers = values[0];
     const rows = values.slice(1);
-    
-    // Mapping dinamis berdasarkan nama header di Sheet
-    const history = rows.map(row => {
-      let obj = {};
-      headers.forEach((header, index) => {
-        obj[header] = row[index];
-      });
-      return obj;
-    }).reverse();
+    const history = rows.map(row => ({
+      id: row[0],
+      timestamp: row[1],
+      photoUrl: row[2],
+      resultScan: row[3],
+      notes: row[4]
+    })).reverse();
 
     return JSON_RESPONSE({
       status: 'success',
