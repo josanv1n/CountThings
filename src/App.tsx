@@ -226,7 +226,12 @@ export default function App() {
           className="flex items-center gap-3"
         >
           <div className="bg-neon-green p-2 rounded-xl neon-glow-green">
-            <Cpu className="text-black w-6 h-6" />
+            <img 
+              src="https://josanvin.github.io/josanvin/img/countthings.png" 
+              alt="Logo" 
+              className="w-6 h-6 object-contain"
+              referrerPolicy="no-referrer"
+            />
           </div>
           <div>
             <h1 className="text-xl font-black tracking-tighter glitch-text uppercase">CountThings</h1>
