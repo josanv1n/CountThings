@@ -31,6 +31,23 @@ export default function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [selectedHistoryItem, setSelectedHistoryItem] = useState<HistoryItem | null>(null);
+  const [visitorCount, setVisitorCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const incrementVisitor = async () => {
+      try {
+        // Menggunakan Counter API gratis untuk menyimpan data secara global
+        const resp = await fetch('https://api.counterapi.dev/v1/countthings-app-v2/visitor/up');
+        const data = await resp.json();
+        if (data && data.count) {
+          setVisitorCount(data.count);
+        }
+      } catch (err) {
+        console.error("Visitor counter error:", err);
+      }
+    };
+    incrementVisitor();
+  }, []);
 
   const loadHistory = useCallback(async (url: string) => {
     if (!url) return;
@@ -592,7 +609,14 @@ export default function App() {
               <span className="text-[10px] font-bold text-neon-green uppercase tracking-wider">Ready to Scan</span>
             </div>
           </div>
-          <p className="text-[10px] text-white/20 font-mono">COUNTTHINGS // TECHNO_VIEW_V2</p>
+          <div className="flex flex-col items-end">
+            <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Visitors</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] font-bold text-neon-cyan font-mono">
+                {visitorCount !== null ? visitorCount.toLocaleString() : '...'}
+              </span>
+            </div>
+          </div>
         </div>
       </footer>
 
