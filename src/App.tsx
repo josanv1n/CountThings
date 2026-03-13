@@ -610,7 +610,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-col items-end">
-            <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Visitors</span>
+            <span className="text-[8px] text-neon-cyan uppercase tracking-widest">Visitors</span>
             <div className="flex items-center gap-1">
               <span className="text-[10px] font-bold text-neon-cyan font-mono">
                 {visitorCount !== null ? visitorCount.toLocaleString() : '...'}
