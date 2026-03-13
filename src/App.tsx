@@ -233,9 +233,19 @@ export default function App() {
               referrerPolicy="no-referrer"
             />
           </div>
-          <div>
-            <h1 className="text-xl font-black tracking-tighter glitch-text uppercase">CountThings</h1>
-            <p className="text-[10px] text-neon-green font-mono uppercase tracking-widest">Techno Vision v2.0</p>
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-xl font-black tracking-tighter glitch-text uppercase">CountThings</h1>
+              <p className="text-[10px] text-neon-green font-mono uppercase tracking-widest">Techno Vision v2.0</p>
+            </div>
+            <div className="flex flex-col items-start border-l border-white/10 pl-3">
+              <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Visitors</span>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] font-bold text-neon-cyan font-mono">
+                  {visitorCount !== null ? visitorCount.toLocaleString() : '...'}
+                </span>
+              </div>
+            </div>
           </div>
         </motion.div>
         
@@ -615,10 +625,10 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-neon-cyan uppercase tracking-widest">Visitors</span>
+            <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">Time</span>
             <div className="flex items-center gap-1">
-              <span className="text-[10px] font-bold text-neon-cyan font-mono">
-                {visitorCount !== null ? visitorCount.toLocaleString() : '...'}
+              <span className="text-[10px] font-bold text-white/60 font-mono">
+                {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
           </div>
